@@ -6,6 +6,7 @@ module Development.IDE.LSP.Outline
   ( setHandlersOutline
     -- * For haskell-language-server
   , moduleOutline
+  , workspaceOutline
   )
 where
 
@@ -33,7 +34,12 @@ import           Outputable                     ( Outputable
 setHandlersOutline :: PartialHandlers c
 setHandlersOutline = PartialHandlers $ \WithMessage {..} x -> return x
   { LSP.documentSymbolHandler = withResponse RspDocumentSymbols moduleOutline
+  , LSP.workspaceSymbolHandler = withResponse RspWorkspaceSymbols workspaceOutline
   }
+
+workspaceOutline :: LSP.LspFuncs c -> IdeState -> WorkspaceSymbolParams -> IO (Either ResponseError (List SymbolInformation))
+workspaceOutline lsp ideState symbolParams = do
+  return $ Right $ List [SymbolInformation "HELLOWORLD" SkVariable Nothing (Location (Uri "Outline.hs") (Range (Position 0 0) (Position 0 0))) Nothing]
 
 moduleOutline
   :: LSP.LspFuncs c -> IdeState -> DocumentSymbolParams -> IO (Either ResponseError DSResult)
