@@ -30,6 +30,7 @@ import           Outputable                     ( Outputable
                                                 , ppr
                                                 , showSDocUnsafe
                                                 )
+import Control.Monad (foldM)
 
 setHandlersOutline :: PartialHandlers c
 setHandlersOutline = PartialHandlers $ \WithMessage {..} x -> return x
@@ -38,8 +39,44 @@ setHandlersOutline = PartialHandlers $ \WithMessage {..} x -> return x
   }
 
 workspaceOutline :: LSP.LspFuncs c -> IdeState -> WorkspaceSymbolParams -> IO (Either ResponseError (List SymbolInformation))
-workspaceOutline lsp ideState symbolParams = do
-  return $ Right $ List [SymbolInformation "HELLOWORLD" SkVariable Nothing (Location (Uri "Outline.hs") (Range (Position 0 0) (Position 0 0))) Nothing]
+workspaceOutline _lsp ideState _symbolParams = do
+  fileset <- runIdeAction "WorkspaceOutline" (shakeExtras ideState) projectFiles
+  uriMods <- mapMaybeM (\fp -> fmap ((fp,) . fst) <$> runIdeAction "WorkspaceOutline" (shakeExtras ideState) (useWithStaleFast GetParsedModule fp)) fileset
+  pure $ Right $ List $ flip concatMap uriMods $ \(uri, ParsedModule { pm_parsed_source = L _ HsModule { hsmodName, hsmodDecls, hsmodImports }}) ->
+    mapMaybe (workspaceSymbolForDecl $ fromNormalizedUri $ normalizedFilePathToUri uri) hsmodDecls
+    -- probably also want moduleSymbol?
+  where 
+    mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
+    mapMaybeM f = fmap catMaybes . mapM f
+
+workspaceSymbolForDecl :: Uri -> Located (HsDecl GhcPs) -> Maybe SymbolInformation
+workspaceSymbolForDecl file (L (RealSrcSpan l) (TyClD FamDecl { tcdFam = FamilyDecl { fdLName = L _ n, fdTyVars } }))
+  = Just (defSymbolInformation file l :: SymbolInformation)
+      { _name = showRdrName n 
+                  <> (case pprText fdTyVars of
+                        "" -> ""
+                        t -> " " <> t
+                     )
+      , _kind = SkClass
+      }
+workspaceSymbolForDecl file (L (RealSrcSpan l) (TyClD ClassDecl { tcdLName = L _ n, tcdTyVars }))
+  = Just (defSymbolInformation file l :: SymbolInformation)
+      { _name = showRdrName n
+                  <> (case pprText tcdTyVars of 
+                        "" -> ""
+                        t -> " " <> t
+                     )
+      , _kind = SkClass
+      }
+workspaceSymbolForDecl _ _ = Nothing
+
+defSymbolInformation :: Uri -> RealSrcSpan -> SymbolInformation
+defSymbolInformation file l = SymbolInformation {..} where
+  _name = ""
+  _kind = SkUnknown 0
+  _deprecated = Nothing
+  _location = Location file (realSrcSpanToRange l)
+  _containerName = Nothing
 
 moduleOutline
   :: LSP.LspFuncs c -> IdeState -> DocumentSymbolParams -> IO (Either ResponseError DSResult)
