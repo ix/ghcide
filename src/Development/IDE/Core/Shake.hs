@@ -58,6 +58,7 @@ module Development.IDE.Core.Shake(
     ProgressEvent(..),
     DelayedAction, mkDelayedAction,
     IdeAction(..), runIdeAction,
+    projectFiles,
     mkUpdater,
     -- Exposed for testing.
     Q(..),
@@ -729,6 +730,11 @@ newtype IdeAction a = IdeAction { runIdeActionT  :: (ReaderT ShakeExtras IO) a }
 -- block.
 runIdeAction :: String -> ShakeExtras -> IdeAction a -> IO a
 runIdeAction _herald s i = runReaderT (runIdeActionT i) s
+
+projectFiles :: IdeAction [NormalizedFilePath]
+projectFiles = do
+  fileset <- asks knownFilesVar
+  liftIO $ HSet.toList <$> unhashed <$> readVar fileset
 
 askShake :: IdeAction ShakeExtras
 askShake = ask
